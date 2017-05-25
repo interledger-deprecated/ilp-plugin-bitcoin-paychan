@@ -187,6 +187,9 @@ async function run () {
     expiresAt: new Date(Date.now() + 1000).toISOString()
   })
 
+  await new Promise((resolve) => setTimeout(resolve, 5000))
+  await bob.disconnect()
+
   console.log(chalk.green('done!'))
   //process.exit(0)
 }

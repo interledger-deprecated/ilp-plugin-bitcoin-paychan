@@ -39,6 +39,12 @@ function scriptToOut (script) {
   return bitcoinjs.script.scriptHash.output.encode(bitcoinjs.crypto.hash160(script))
 }
 
+async function submit (client, transactionHex) {
+  console.log('submitting raw transaction to bitcoin core')
+  const txid = await client.command('sendrawtransaction', transactionHex, true)
+  console.log('submitted with txid:', txid)
+}
+
 async function createTx ({
   client,
   script,
@@ -178,5 +184,6 @@ module.exports = {
   getTx,
   scriptToOut,
   getTxHash,
-  createTx
+  createTx,
+  submit
 }

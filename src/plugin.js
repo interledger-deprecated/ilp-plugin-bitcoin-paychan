@@ -100,6 +100,7 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
     }
 
     await this._incomingChannel.loadTransaction({ txid: this._incomingTxId })
+    await this._outgoingChannel.loadTransaction({})
     shared.Util.safeEmit(this, 'connect')
   }
 
@@ -193,6 +194,7 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
     try {
       claim = await this._rpc.call('fulfill_condition', this._prefix, [transferId, fulfillment])
     } catch (e) {
+      console.error(e.stack)
       debug('failed to get claim from peer. keeping the in-flight balance up.')
       return
     }
@@ -217,8 +219,10 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
 
     this._validateFulfillment(fulfillment, transfer.executionCondition)
     this._transfers.fulfill(transferId, fulfillment)
+    console.log('fulfilled from store')
     shared.Util.safeEmit(this, 'outgoing_fulfill', transfer, fulfillment)
 
+    console.log('creating claim')
     const sig = await this._outgoingChannel.createClaim(transfer)
     console.log('produced claim:', sig)
     return sig

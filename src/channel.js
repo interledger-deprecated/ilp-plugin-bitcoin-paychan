@@ -68,11 +68,12 @@ module.exports = class Channel {
   }
 
   async loadTransaction ({ txid }) {
-    this._txid = txid
+    this._txid = txid || this._txid
     debug('loading fund transaction with id', this._txid)
     this._tx = await bitcoin.getTx(this._client, this._txid)
 
-    for (const out of this._tx.outs) {
+    for (let i = 0; i < this._tx.outs.length; ++i) {
+      const out = this._tx.outs[i]
       const outValue = out.value
       const outScript = out.script.toString('hex')
       const redeemScriptOut = bitcoin.scriptToOut(this._redeemScript).toString('hex')
@@ -82,6 +83,7 @@ module.exports = class Channel {
       }
 
       this._balance.setMaximum(outValue)
+      this._outputIndex = i
       return
     }
 
@@ -102,9 +104,9 @@ module.exports = class Channel {
     })
   }
 
-  _signTx (transaction) {
+  _signTx (transaction, kp) {
     return bitcoin.getClosureTxSigned({
-      keypair: this._senderKeypair,
+      keypair: kp,
       redeemScript: this._redeemScript,
       transaction
     })
@@ -133,7 +135,7 @@ module.exports = class Channel {
     console.log('redeem script:', this._redeemScript.toString('hex'))
     console.log('keypair:', this._senderKeypair.toWIF())
 
-    return this._signTx(transaction)
+    return this._signTx(transaction, this._senderKeypair)
   }
 
   async claim () {
@@ -144,7 +146,7 @@ module.exports = class Channel {
     console.log('raw transation:', transaction.toBuffer().toString('hex'))
 
     console.log('generating receiver signature')
-    const receiverSig = this._signTx(transaction)
+    const receiverSig = this._signTx(transaction, this._receiverKeypair)
 
     console.log('generating the script that does the stuff')
     console.log('redeem to buffer:', this._redeemScript.toString('hex'))
@@ -160,6 +162,7 @@ module.exports = class Channel {
     console.log('logging it now')
     // TODO: really submit
     console.log('SUBMIT:', transaction.toBuffer().toString('hex'))
+    bitcoin.submit(this._client, transaction.toBuffer().toString('hex'))
   }
 
   async expire () {
@@ -175,7 +178,7 @@ module.exports = class Channel {
     console.log('redeem script:', this._redeemScript.toString('hex'))
     console.log('keypair:', this._senderKeypair.toWIF())
 
-    const senderSig = this._signTx(transaction)
+    const senderSig = this._signTx(transaction, this._senderKeypair)
     console.log('sending signature:', senderSig)
     console.log('is it canonical?', bitcoinjs.script.isCanonicalSignature(Buffer.from(senderSig, 'hex')))
 
@@ -187,5 +190,6 @@ module.exports = class Channel {
     transaction.setInputScript(0, expireScript)
     // TODO: really submit
     console.log('SUBMIT:', transaction.toBuffer().toString('hex'))
+    bitcoin.submit(this._client, transaction.toBuffer().toString('hex'))
   }
 }
