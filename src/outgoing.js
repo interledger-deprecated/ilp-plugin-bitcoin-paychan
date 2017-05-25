@@ -20,10 +20,8 @@ module.exports = class OutgoingChannel {
   }) {
     // TODO: modify balance class to support several balances in one store
     // TODO: set max amount better
-    this._balance = new shared.Balance({ store, maximum: 5 })
+    this._balance = new shared.Balance({ store, maximum: 0 })
     this._secret = secret
-    this._senderKeypair = bitcoin.secretToKeypair(this._secret)
-    this._receiverKeypair = bitcoin.publicToKeypair(receiverPublicKey)
     this._timeout = timeout
     this._network = network
     this._outputIndex = outputIndex
@@ -32,37 +30,32 @@ module.exports = class OutgoingChannel {
   }
 
   async connect () {
-    const [ user, pass ] = this._bitcoinUri.auth.split(':')
-    console.log(user, pass)
     await this._balance.connect()
-    this._client = new BitcoinClient({
-      // TODO: make this optional
-      network: this._network,
-      // host: this._bitcoinUri.host,
-      // port: this._bitcoinUri.port,
-      ssl: ((this._bitcoinUri.protocol === 'https:')
-        ? { enabled: true, strict: true }
-        : false),
-      username: user,
-      password: pass
+
+    this._client = bitcoin.getClient({
+      uri: this._bitcoinUri,
+      network: this._network
     })
 
-    const tx = await this._client.command('gettransaction', this._txid)
-    const scriptOpts = {
+    this._tx = await this._client.command('gettransaction', this._txid)
+    this._redeemScript = bitcoin.generateScript({
       senderKeypair: this._senderKeypair,
       receiverKeypair: this._receiverKeypair,
       timeout: this._timeout,
-      // TODO: omit undefined?
       network: this._network
+    })
+
+    const out = this._tx.outs[this._outputIndex]
+    const outValue = out.value
+    const outScript = out.script
+    const redeemScriptOut = bitcoin.scriptToOut(this._redeemScript)
+
+    if (outScript !== redeemScriptOut) {
+      throw new Error('output script (' + outScript.toString('hex') + ') does not match' +
+        'redeem script output (' + redeemScriptOut.toString('hex') + ').')
     }
 
-    // this._redeemScript = bitcoin.generateRedeemScript(scriptOpts)
-    this._redeemScript = bitcoin.generateScript(scriptOpts)
-
-    // TODO: set the max to the amount in the channel
-    // const tx = await this._client.command('getblockchaininfo')
-    // TODO: validation on the transaction
-    // console.log(tx)
+    this._balance.setMaximum(outValue)
   }
 
   async createClaim (transfer) {
@@ -78,6 +71,9 @@ module.exports = class OutgoingChannel {
       changeAmount: (5 - this._balance.get())
     })
 
+    console.log('redeem script:', this._redeemScript.toString('hex'))
+    console.log('keypair:', this._senderKeypair.toWIF())
+
     return bitcoin.getClosureTxSigned({
       keypair: this._senderKeypair,
       redeemScript: this._redeemScript,
@@ -86,6 +82,33 @@ module.exports = class OutgoingChannel {
   }
 
   async expire () {
+    const transaction = bitcoin.generateExpireTx({
+      senderKeypair: this._senderKeypair,
+      txid: this._txid,
+      outputIndex: this._outputIndex,
+      timeout: this._timeout,
+      // TODO: properly calculate amount
+      amount: 5
+    })
 
+    console.log('transaction:', transaction.toBuffer().toString('hex'))
+    console.log('redeem script:', this._redeemScript.toString('hex'))
+    console.log('keypair:', this._senderKeypair.toWIF())
+
+    const senderSig = bitcoin.getClosureTxSigned({
+      keypair: this._senderKeypair,
+      redeemScript: this._redeemScript,
+      transaction: transaction
+    })
+    console.log('sending signature:', senderSig)
+    console.log('is it canonical?', bitcoinjs.script.isCanonicalSignature(Buffer.from(senderSig, 'hex')))
+
+    const expireScript = bitcoinjs.script.scriptHash.input.encode([
+      Buffer.from(senderSig, 'hex'),
+      bitcoinjs.opcodes.OP_TRUE
+    ], this._redeemScript)
+
+    transaction.setInputScript(0, expireScript)
+    console.log(transaction.toBuffer().toString('hex'))
   }
 }

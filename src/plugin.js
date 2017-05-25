@@ -1,33 +1,28 @@
 'use strict'
 
+const debug = require('debug')('ilp-plugin-bitcoin-paychan')
 const crypto = require('crypto')
 const shared = require('ilp-plugin-shared')
 const bitcoin = require('./bitcoin')
-const IncomingChannel = require('./incoming')
-const OutgoingChannel = require('./outgoing')
+const Channel = require('./channel')
 const EventEmitter2 = require('eventemitter2')
 const InvalidFieldsError = shared.Errors.InvalidFieldsError
 
 module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
   constructor ({
-    incomingTxId,
-    outgoingTxId,
+    outgoingAmount,
     rpcUri,
     secret,
     timeout,
     network,
-    outputIndex
     peerPublicKey,
     bitcoinUri,
-    _store
+    maxInFlight,
+    _store,
   }) {
     super()
 
-    if (!incomingTxId) {
-      throw new InvalidFieldsError('missing opts.incomingTxId')
-    } else if (!outgoingTxId) {
-      throw new InvalidFieldsError('missing opts.outgoingTxId')
-    } else if (!rpcUri) {
+    if (!rpcUri) {
       throw new InvalidFieldsError('missing opts.rpcUri')
     } else if (!secret) {
       throw new InvalidFieldsError('missing opts.secret')
@@ -39,17 +34,19 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
       throw new InvalidFieldsError('missing opts._store')
     }
 
-    this._incomingTxId = incomingTxId
-    this._outgoingTxId = outgoingTxId
     this._bitcoinUri = bitcoinUri
     this._peerPublicKey = peerPublicKey
     this._secret = secret
-    this._prefix = 'g.crypto.bitcoin.' + ((incomingTxId > outgoingTxId)
-      ? incomingTxId + outgoingTxId
-      : outgoingTxId + incomingTxId) + '.'
+    this._keypair = bitcoin.secretToKeypair(this._secret)
+    this._address = bitcoin.publicKeyToAddress(this._keypair.getPublicKeyBuffer().toString('hex'))
+    this._peerAddress = bitcoin.publicKeyToAddress(peerPublicKey)
+
+    this._prefix = 'g.crypto.bitcoin.' + ((this._address > this._peerAddress)
+      ? this._address + '~' + this._peerAddress
+      : this._peerAddress + '~' + this._address) + '.'
 
     // TODO: make the balance right, and have it be configurable
-    this._inFlight = new shared.Balance({ store: _store })
+    this._inFlight = new shared.Balance({ store: _store, maximum: maxInFlight })
     this._transfers = new shared.TransferLog({ store: _store })
     this._validator = new shared.Validator({ plugin: this })
     this._rpc = new shared.HttpRpc({
@@ -59,44 +56,60 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
       authToken: 'placeholder'
     })
 
+    const channelParams = {
+      // TODO: allow 2 different timeouts?
+      timeout: timeout,
+      uri: this._bitcoinUri,
+      store: _store,
+      network: 'testnet',
+      secret: this._secret
+    }
+
     // incoming channel submits and validates claims
-    this._incomingChannel = new IncomingChannel({
-      txid: incomingTxId,
-      uri: bitcoinUri
-    })
+    this._incomingChannel = new Channel(Object.assign({
+      senderPublicKey: this._peerPublicKey
+    }, channelParams))
 
     // outgoing channel generates claims and times out the channel
-    this._outgoingChannel = new OutgoingChannel({
-      txid: outgoingTxId,
-      uri: bitcoinUri
-      store: _store,
-      receiverPublicKey: peerPublicKey,
-      secret,
-      timeout,
-      network,
-      outputIndex
-    })
+    this._outgoingChannel = new Channel(Object.assign({
+      receiverPublicKey: this._peerPublicKey,
+      amount: outgoingAmount
+    }, channelParams))
 
     this.receive = this._rpc.receive.bind(this._rpc)
     this._rpc.addMethod('send_message', this._handleSendMessage)
     this._rpc.addMethod('send_transfer', this._handleSendTransfer)
     this._rpc.addMethod('fulfill_condition', this._handleFulfillCondition)
     this._rpc.addMethod('reject_incoming_transfer', this._handleRejectIncomingTransfer)
+    this._rpc.addMethod('get_outgoing_txid', this._handleGetOutgoingTxId)
+  }
+
+  async _handleGetOutgoingTxId () {
+    return this._outgoingTxId
   }
 
   async connect () {
+    await this._inFlight.connect()
     await this._incomingChannel.connect()
     await this._outgoingChannel.connect()
-    shared.Util.safeEmit('connect')
+    this._outgoingTxId = await this._outgoingChannel.createChannel()
+
+    while (!this._incomingTxId) {
+      await new Promise((resolve) => setTimeout(resolve, 5000))
+      this._incomingTxId = await this._rpc.call('get_outgoing_txid', this._prefix, [])
+    }
+
+    await this._incomingChannel.loadTransaction({ txid: this._incomingTxId })
+    shared.Util.safeEmit(this, 'connect')
   }
 
   async disconnect () {
     await this._incomingChannel.claim()  
-    shared.Util.safeEmit('disconnect')
+    shared.Util.safeEmit(this, 'disconnect')
   }
 
   getAccount () {
-    return this._prefix + bitcoin.toPublicKey(secret)
+    return this._prefix + this._address
   }
 
   getInfo () {
@@ -110,13 +123,13 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
 
   async sendMessage (_message) {
     const message = this._validator.normalizeOutgoingMessage(_message)
-    await this._rpc.call('send_message', [ message ])
-    shared.Utils.safeEmit(this, 'outgoing_message', message)
+    await this._rpc.call('send_message', this._prefix, [ message ])
+    shared.Util.safeEmit(this, 'outgoing_message', message)
   }
 
   async _handleSendMessage (_message) {
     const message = this._validator.normalizeIncomingMessage(_message)
-    shared.Utils.safeEmit(this, 'incoming_message', message)
+    shared.Util.safeEmit(this, 'incoming_message', message)
     return true
   }
 
@@ -135,14 +148,14 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
     // TODO: is all this repeat stuff totally necessary?
     if (!noRepeat) return
 
-    shared.Utils.safeEmit(this, 'outgoing_prepare', transfer)
+    shared.Util.safeEmit(this, 'outgoing_prepare', transfer)
     this._setupTransferExpiry(transfer.id, transfer.expiresAt)
   }
 
   async _handleSendTransfer (_transfer) {
     const transfer = this._validator.normalizeIncomingTransfer(_transfer)
     // TODO: wrap these into just one method
-    const noRepeat = (this._transfers.cacheOutgoing(transfer) &&
+    const noRepeat = (this._transfers.cacheIncoming(transfer) &&
       (await this._transfers.notInStore(transfer)))
 
     if (!noRepeat) return true
@@ -153,7 +166,7 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
         throw e
       })
 
-    shared.Utils.safeEmit(this, 'incoming_prepare', transfer)
+    shared.Util.safeEmit(this, 'incoming_prepare', transfer)
     this._setupTransferExpiry(transfer.id, transfer.expiresAt)
     return true
   }
@@ -178,12 +191,13 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
     
     let claim
     try {
-      claim = await this.rpc.call('fulfill_condition', this._prefix, [transferId, fulfillment])
+      claim = await this._rpc.call('fulfill_condition', this._prefix, [transferId, fulfillment])
     } catch (e) {
       debug('failed to get claim from peer. keeping the in-flight balance up.')
       return
     }
 
+    debug('got claim from peer:', claim)
     this._incomingChannel.processClaim({ transfer, claim })
   }
 
@@ -199,12 +213,15 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
 
     this._transfers.assertOutgoing(transferId)
     const transfer = this._transfers.get(transferId)
+    console.log('fetched transfer for fulfill:', transfer)
 
     this._validateFulfillment(fulfillment, transfer.executionCondition)
     this._transfers.fulfill(transferId, fulfillment)
     shared.Util.safeEmit(this, 'outgoing_fulfill', transfer, fulfillment)
 
-    return this._outgoingChannel.createClaim({ transfer })
+    const sig = await this._outgoingChannel.createClaim(transfer)
+    console.log('produced claim:', sig)
+    return sig
   }
 
   _validateFulfillment (fulfillment, condition) {
@@ -284,7 +301,7 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
       this._inFlight.sub(cached.transfer.amount)
     }
 
-    this._safeEmit((cached.isIncoming ? 'incoming' : 'outgoing') + '_cancel',
+    shared.Util.safeEmit(this, (cached.isIncoming ? 'incoming' : 'outgoing') + '_cancel',
       cached.transfer)
   }
 }
