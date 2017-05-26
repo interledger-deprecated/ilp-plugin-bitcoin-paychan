@@ -49,6 +49,7 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
     this._inFlight = new shared.Balance({ store: _store, maximum: maxInFlight })
     this._transfers = new shared.TransferLog({ store: _store })
     this._validator = new shared.Validator({ plugin: this })
+    this.isAuthorized = () => true
     this._rpc = new shared.HttpRpc({
       rpcUri: rpcUri,
       plugin: this,
@@ -96,12 +97,22 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
 
     while (!this._incomingTxId) {
       await new Promise((resolve) => setTimeout(resolve, 5000))
-      this._incomingTxId = await this._rpc.call('get_outgoing_txid', this._prefix, [])
+      try {
+        this._incomingTxId = await this._rpc.call('get_outgoing_txid', this._prefix, [])
+      } catch (e) {
+        debug('got rpc error:', e.message)
+        debug('retrying...')
+      }
     }
 
     await this._incomingChannel.loadTransaction({ txid: this._incomingTxId })
     await this._outgoingChannel.loadTransaction({})
+    this._connected = true
     shared.Util.safeEmit(this, 'connect')
+  }
+
+  isConnected () {
+    return !!this._connected
   }
 
   async disconnect () {
@@ -215,6 +226,7 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
 
     this._transfers.assertOutgoing(transferId)
     const transfer = this._transfers.get(transferId)
+    transfer.direction = 'outgoing' // the connector needs this for whatever reason
     console.log('fetched transfer for fulfill:', transfer)
 
     this._validateFulfillment(fulfillment, transfer.executionCondition)

@@ -16,6 +16,7 @@ function getClient ({ uri, network }) {
 
   return new BitcoinClient({
     network: network,
+    host: _uri.hostname,
     ssl: ((uri.protocol === 'https:')
       ? { enabled: true, strict: true }
       : false),

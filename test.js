@@ -73,6 +73,9 @@ async function run () {
   const secretBob = '80044da2f41364353b173aacc42b8694125cda4636a979105c400e4d6bf4684f'
   const kpA = bitcoin.secretToKeypair(secretAlice)
   const kpB = bitcoin.secretToKeypair(secretBob)
+
+  console.log('public key alice:', kpA.getPublicKeyBuffer().toString('hex'))
+  console.log('public key bob:', kpB.getPublicKeyBuffer().toString('hex'))
   /*
   const addrAB = bitcoin.generateP2SH({
     senderKeypair: kpA,
