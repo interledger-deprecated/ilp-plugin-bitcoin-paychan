@@ -212,6 +212,8 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
 
     debug('got claim from peer:', claim)
     this._incomingChannel.processClaim({ transfer, claim })
+    this._transfers.fulfill(transferId, fulfillment)
+    console.log('fulfilled from store')
   }
 
   async _handleFulfillCondition (transferId, fulfillment) {
