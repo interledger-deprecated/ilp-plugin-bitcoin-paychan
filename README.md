@@ -28,7 +28,7 @@ npm install
 
 `ilp-plugin-bitcoin-paychan` uses simple unidirectional Bitcoin payment channels implemented with [CHECKLOCKTIMEVERIFY (CLTV)](https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki). While the underlying channel is not conditional (i.e. does not use hashlocks), the plugin only sends updates to the channel when it receives the fulfillment from the other party. This means that payments that there is some risk for payments that are in flight. However, the Interledger Protocol isolates participants from risk from indirect peers.
 
-By implementing all of the functions required by the [Ledger Plugin Interface](https://github.com/interledger/rfcs/blob/master/0004-ledger-plugin-interface/0004-ledger-plugin-interface.md), this allows Chain Core to be used by standard Interledger.js components.
+By implementing all of the functions required by the [Ledger Plugin Interface](https://github.com/interledger/rfcs/blob/master/0004-ledger-plugin-interface/0004-ledger-plugin-interface.md), this allows Bitcoin to be used by standard Interledger.js components.
 
 For more information about how Interledger works, see [IL-RFC 1: Interledger Architecture](https://github.com/interledger/rfcs/blob/master/0001-interledger-architecture/0001-interledger-architecture.md).
 
