@@ -9,6 +9,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "ilp-plugin-shared": "interledgerjs/ilp-plugin-shared#master",
     "bignumber.js": "^4.0.2",
     "bitcoin-core": "^1.2.0",
     "bitcoinjs-lib": "^3.0.3",
