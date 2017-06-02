@@ -11,6 +11,12 @@ const Router = require('koa-router')
 const Parser = require('koa-bodyparser')
 const chalk = require('chalk')
 const BTC_SCALE = 1e8
+const USER = process.env.BTC_USER
+const PASS = process.env.BTC_PASS
+
+if (!USER || !PASS) {
+  throw new Error('set env variables BTC_USER and BTC_PASS to connect to RPC')
+}
 
 process.on('unhandledRejection', e => console.error(e));
 
@@ -113,7 +119,7 @@ async function run () {
     timeout: timeoutstamp,
     network: 'testnet',
     peerPublicKey: kpB.getPublicKeyBuffer().toString('hex'),
-    bitcoinUri: 'http://admin:passwarudo@localhost:18444'
+    bitcoinUri: 'http://' + USER + ':' + PASS + '@localhost:18444'
   })
 
   console.log(chalk.grey('creating bob'))
@@ -131,7 +137,7 @@ async function run () {
     timeout: timeoutstamp,
     network: 'testnet',
     peerPublicKey: kpA.getPublicKeyBuffer().toString('hex'),
-    bitcoinUri: 'http://admin:passwarudo@localhost:18444'
+    bitcoinUri: 'http://' + USER + ':' + PASS + '@localhost:18444'
   })
 
   console.log(chalk.grey('establishing RPC'))
