@@ -7,6 +7,7 @@ const bitcoin = require('./bitcoin')
 const Channel = require('./channel')
 const EventEmitter2 = require('eventemitter2')
 const InvalidFieldsError = shared.Errors.InvalidFieldsError
+const RequestHandlerAlreadyRegisteredError = shared.Errors.RequestHandlerAlreadyRegisteredError
 
 module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
   constructor ({
@@ -79,6 +80,7 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
 
     this.receive = this._rpc.receive.bind(this._rpc)
     this._rpc.addMethod('send_message', this._handleSendMessage)
+    this._rpc.addMethod('send_request', this._handleRequest)
     this._rpc.addMethod('send_transfer', this._handleSendTransfer)
     this._rpc.addMethod('fulfill_condition', this._handleFulfillCondition)
     this._rpc.addMethod('reject_incoming_transfer', this._handleRejectIncomingTransfer)
@@ -133,6 +135,62 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
     }
   }
 
+  registerRequestHandler (handler) {
+    if (this._requestHandler) {
+      throw new RequestHandlerAlreadyRegisteredError('requestHandler is already registered')
+    }
+
+    if (typeof handler !== 'function') {
+      throw new InvalidFieldsError('requestHandler must be a function')
+    }
+
+    this._requestHandler = handler
+  }
+
+  deregisterRequestHandler () {
+    this._requestHandler = null
+  }
+
+  async sendRequest (message) {
+    this._validator.validateOutgoingMessage(message)
+    shared.Util.safeEmit(this, 'outgoing_request', message)
+
+    const response = await this._rpc.call('send_request', this._prefix, [message])
+    this._validator.validateIncomingMessage(response)
+    shared.Util.safeEmit(this, 'incoming_response', response)
+
+    return response
+  }
+
+  async _handleRequest (message) {
+    this._validator.validateIncomingMessage(message)
+    shared.Util.safeEmit(this, 'incoming_request', message)
+
+    if (!this._requestHandler) {
+      throw new NotAcceptedError('no request handler registered')
+    }
+
+    const response = await this._requestHandler(message)
+      .catch((e) => ({
+        ledger: message.ledger,
+        to: message.from,
+        from: this.getAccount(),
+        ilp: base64url(IlpPacket.serializeIlpError({
+          code: 'F00',
+          name: 'Bad Request',
+          triggeredBy: this.getAccount(),
+          forwardedBy: [],
+          triggeredAt: new Date(),
+          data: JSON.stringify({ message: e.message })
+        }))
+      }))
+
+    this._validator.validateOutgoingMessage(response)
+    shared.Util.safeEmit(this, 'outgoing_response', response)
+
+    return response
+  }
+
   async sendMessage (_message) {
     const message = this._validator.normalizeOutgoingMessage(_message)
     await this._rpc.call('send_message', this._prefix, [ message ])
@@ -183,7 +241,7 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
     return true
   }
 
-  async fulfillCondition (transferId, fulfillment) {
+  async fulfillCondition (transferId, fulfillment, fulfillmentData) {
     // TODO: check out that method
     this._validator.validateFulfillment(fulfillment)
 
@@ -199,11 +257,11 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
     this._transfers.assertIncoming(transferId)
     // TODO: make the error on this better when the transfer isn't found
     const transfer = this._transfers.get(transferId)
-    shared.Util.safeEmit(this, 'incoming_fulfill', transfer, fulfillment)
-    
+    shared.Util.safeEmit(this, 'incoming_fulfill', transfer, fulfillment, fulfillmentData)
+
     let claim
     try {
-      claim = await this._rpc.call('fulfill_condition', this._prefix, [transferId, fulfillment])
+      claim = await this._rpc.call('fulfill_condition', this._prefix, [transferId, fulfillment, fulfillmentData])
     } catch (e) {
       console.error(e.stack)
       debug('failed to get claim from peer. keeping the in-flight balance up.')
@@ -216,7 +274,7 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
     console.log('fulfilled from store')
   }
 
-  async _handleFulfillCondition (transferId, fulfillment) {
+  async _handleFulfillCondition (transferId, fulfillment, fulfillmentData) {
     this._validator.validateFulfillment(fulfillment)
 
     const error = this._transfers.assertAllowedChange(transferId, 'executed')
@@ -234,7 +292,7 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
     this._validateFulfillment(fulfillment, transfer.executionCondition)
     this._transfers.fulfill(transferId, fulfillment)
     console.log('fulfilled from store')
-    shared.Util.safeEmit(this, 'outgoing_fulfill', transfer, fulfillment)
+    shared.Util.safeEmit(this, 'outgoing_fulfill', transfer, fulfillment, fulfillmentData)
 
     console.log('creating claim')
     const sig = await this._outgoingChannel.createClaim(transfer)

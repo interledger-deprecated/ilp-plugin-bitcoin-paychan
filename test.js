@@ -143,6 +143,20 @@ async function run () {
   console.log(chalk.grey('establishing RPC'))
   establishRpc({ port: 7777, alice, bob })
 
+  console.log(chalk.yellow('sending a request alice -> bob'))
+  bob.registerRequestHandler(async (msg) => {
+    console.log(chalk.green('bob got message:'), msg)
+    return {
+      to: alice.getAccount(),
+      data: { foo: 'baz' }
+    }
+  })
+  const response = await alice.sendRequest({
+    to: bob.getAccount(),
+    data: { foo: 'bar' }
+  })
+  console.log('alice got response:', response)
+
   console.log(chalk.grey('connecting alice & bob'))
   await Promise.all([
     alice.connect(),
