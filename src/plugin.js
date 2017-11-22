@@ -183,7 +183,7 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
     return true
   }
 
-  async fulfillCondition (transferId, fulfillment) {
+  async fulfillCondition (transferId, fulfillment, fulfillmentData) {
     // TODO: check out that method
     this._validator.validateFulfillment(fulfillment)
 
@@ -199,11 +199,11 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
     this._transfers.assertIncoming(transferId)
     // TODO: make the error on this better when the transfer isn't found
     const transfer = this._transfers.get(transferId)
-    shared.Util.safeEmit(this, 'incoming_fulfill', transfer, fulfillment)
-    
+    shared.Util.safeEmit(this, 'incoming_fulfill', transfer, fulfillment, fulfillmentData)
+
     let claim
     try {
-      claim = await this._rpc.call('fulfill_condition', this._prefix, [transferId, fulfillment])
+      claim = await this._rpc.call('fulfill_condition', this._prefix, [transferId, fulfillment, fulfillmentData])
     } catch (e) {
       console.error(e.stack)
       debug('failed to get claim from peer. keeping the in-flight balance up.')
@@ -216,7 +216,7 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
     console.log('fulfilled from store')
   }
 
-  async _handleFulfillCondition (transferId, fulfillment) {
+  async _handleFulfillCondition (transferId, fulfillment, fulfillmentData) {
     this._validator.validateFulfillment(fulfillment)
 
     const error = this._transfers.assertAllowedChange(transferId, 'executed')
@@ -234,7 +234,7 @@ module.exports = class PluginBitcoinPaychan extends EventEmitter2 {
     this._validateFulfillment(fulfillment, transfer.executionCondition)
     this._transfers.fulfill(transferId, fulfillment)
     console.log('fulfilled from store')
-    shared.Util.safeEmit(this, 'outgoing_fulfill', transfer, fulfillment)
+    shared.Util.safeEmit(this, 'outgoing_fulfill', transfer, fulfillment, fulfillmentData)
 
     console.log('creating claim')
     const sig = await this._outgoingChannel.createClaim(transfer)
