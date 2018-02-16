@@ -6,7 +6,7 @@
 
 This plugin enables [Interledger](https://interledger.org) payments through [Bitcoin](https://bitcoin.org) using simple payment channels.
 
-`ilp-plugin-bitcoin-paychan` implements the [Interledger.js Ledger Plugin Interface](https://github.com/interledger/rfcs/blob/master/0004-ledger-plugin-interface/0004-ledger-plugin-interface.md), which allows Bitcoin to be used with [`ilp` client](https://github.com/interledgerjs/ilp) and the [`ilp-connector`](https://github.com/interledgerjs/ilp-connector).
+`ilp-plugin-bitcoin-paychan` implements the [Interledger.js Ledger Plugin Interface](https://github.com/interledger/rfcs/blob/master/0024-ledger-plugin-interface-2/0024-ledger-plugin-interface-2.md), which allows Bitcoin to be used with [`ilp` client](https://github.com/interledgerjs/ilp) and the [`ilp-connector`](https://github.com/interledgerjs/ilp-connector).
 
 ## Installation
 
