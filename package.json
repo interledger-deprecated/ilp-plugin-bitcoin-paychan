@@ -9,13 +9,13 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "ilp-plugin-shared": "interledgerjs/ilp-plugin-shared#master",
     "bignumber.js": "^4.0.2",
     "bitcoin-core": "^1.2.0",
     "bitcoinjs-lib": "^3.0.3",
-    "bitcore-lib": "^0.14.0",
+    "bitcore-lib": "^0.15.0",
     "debug": "^2.6.8",
-    "eventemitter2": "^4.1.0"
+    "eventemitter2": "^4.1.0",
+    "ilp-plugin-shared": "interledgerjs/ilp-plugin-shared#master"
   },
   "devDependencies": {
     "chalk": "^1.1.3",
