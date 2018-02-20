@@ -4,6 +4,7 @@ const bitcoinjs = require('bitcoinjs-lib')
 const BigInteger = require('bigi')
 const BitcoinClient = require('bitcoin-core')
 const url = require('url')
+const debug = require('debug')('ilp-plugin-bitcoin-paychan:bitcoin')
 
 const BTC_SCALE = 1e8
 const DEFAULT_FEE = 1e5
@@ -41,9 +42,9 @@ function scriptToOut (script) {
 }
 
 async function submit (client, transactionHex) {
-  console.log('submitting raw transaction to bitcoin core')
+  debug('submitting raw transaction to bitcoin core')
   const txid = await client.command('sendrawtransaction', transactionHex, true)
-  console.log('submitted with txid:', txid)
+  debug('submitted with txid:', txid)
 }
 
 async function createTx ({
@@ -52,8 +53,8 @@ async function createTx ({
   amount
 }) {
   const address = scriptToP2SH({ script, network: bitcoinjs.networks.testnet })
-  console.log('sending to address', address, 'with amount', amount)
-  return await client.command('sendtoaddress', address, amount / BTC_SCALE)
+  debug('sending to address', address, 'with amount', amount)
+  return client.command('sendtoaddress', address, amount / BTC_SCALE)
 }
 
 function scriptToP2SH ({
@@ -129,7 +130,6 @@ function getClosureTxSigned ({
   redeemScript,
   transaction
 }) {
-  const inputIndex = 0
   const hash = getTxHash(transaction, redeemScript)
   return keypair
     .sign(hash)

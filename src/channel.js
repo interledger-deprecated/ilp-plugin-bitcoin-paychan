@@ -1,7 +1,8 @@
+'use strict'
+
 const url = require('url')
 const shared = require('ilp-plugin-shared')
 const bitcoin = require('./bitcoin')
-const BigInteger = require('bigi')
 const bitcoinjs = require('bitcoinjs-lib')
 const debug = require('debug')('ilp-plugin-bitcoin-paychan:channel')
 
@@ -72,11 +73,11 @@ module.exports = class Channel {
     debug('loading fund transaction with id', this._txid)
     this._tx = await bitcoin.getTx(this._client, this._txid)
 
+    const redeemScriptOut = bitcoin.scriptToOut(this._redeemScript).toString('hex')
     for (let i = 0; i < this._tx.outs.length; ++i) {
       const out = this._tx.outs[i]
       const outValue = out.value
       const outScript = out.script.toString('hex')
-      const redeemScriptOut = bitcoin.scriptToOut(this._redeemScript).toString('hex')
 
       if (outScript !== redeemScriptOut) {
         continue
@@ -118,7 +119,7 @@ module.exports = class Channel {
     const sig = bitcoinjs.ECSignature.parseScriptSignature(Buffer.from(claim, 'hex'))
 
     if (!this._senderKeypair.verify(hash, sig.signature)) {
-      this._balance.sub(transfer.amount)
+      await this._balance.sub(transfer.amount)
       throw new Error('claim (' + claim + ') does not match signature hash (' +
         hash + ')')
     }
@@ -132,8 +133,8 @@ module.exports = class Channel {
 
     const transaction = this._generateRawClosureTx()
 
-    console.log('redeem script:', this._redeemScript.toString('hex'))
-    console.log('keypair:', this._senderKeypair.toWIF())
+    debug('redeem script:', this._redeemScript.toString('hex'))
+    debug('keypair:', this._senderKeypair.toWIF())
 
     return this._signTx(transaction, this._senderKeypair)
   }
@@ -141,30 +142,31 @@ module.exports = class Channel {
   async claim () {
     if (!this._claim) throw new Error('No claim to submit')
 
-    console.log('generating raw closure tx')
+    debug('generating raw closure tx')
     const transaction = this._generateRawClosureTx()
-    console.log('raw transation:', transaction.toBuffer().toString('hex'))
+    debug('raw transation:', transaction.toBuffer().toString('hex'))
 
-    console.log('generating receiver signature')
+    debug('generating receiver signature')
     const receiverSig = this._signTx(transaction, this._receiverKeypair)
 
-    console.log('generating the script that does the stuff')
-    console.log('redeem to buffer:', this._redeemScript.toString('hex'))
+    debug('generating the script that does the stuff')
+    debug('redeem to buffer:', this._redeemScript.toString('hex'))
     const closeScript = bitcoinjs.script.scriptHash.input.encode([
       Buffer.from(this._claim, 'hex'),
       Buffer.from(receiverSig, 'hex'),
       bitcoinjs.opcodes.OP_FALSE
     ], this._redeemScript)
 
-    console.log('setting it to be the input script')
+    debug('setting it to be the input script')
     transaction.setInputScript(0, closeScript)
 
-    console.log('logging it now')
+    debug('logging it now')
     // TODO: really submit
-    console.log('SUBMIT:', transaction.toBuffer().toString('hex'))
-    bitcoin.submit(this._client, transaction.toBuffer().toString('hex'))
+    debug('SUBMIT:', transaction.toBuffer().toString('hex'))
+    await bitcoin.submit(this._client, transaction.toBuffer().toString('hex'))
   }
 
+  // TODO call this
   async expire () {
     const transaction = bitcoin.generateExpireTx({
       senderKeypair: this._senderKeypair,
@@ -174,13 +176,13 @@ module.exports = class Channel {
       amount: +this._balance.getMaximum().toString()
     })
 
-    console.log('transaction:', transaction.toBuffer().toString('hex'))
-    console.log('redeem script:', this._redeemScript.toString('hex'))
-    console.log('keypair:', this._senderKeypair.toWIF())
+    debug('transaction:', transaction.toBuffer().toString('hex'))
+    debug('redeem script:', this._redeemScript.toString('hex'))
+    debug('keypair:', this._senderKeypair.toWIF())
 
     const senderSig = this._signTx(transaction, this._senderKeypair)
-    console.log('sending signature:', senderSig)
-    console.log('is it canonical?', bitcoinjs.script.isCanonicalSignature(Buffer.from(senderSig, 'hex')))
+    debug('sending signature:', senderSig)
+    debug('is it canonical?', bitcoinjs.script.isCanonicalSignature(Buffer.from(senderSig, 'hex')))
 
     const expireScript = bitcoinjs.script.scriptHash.input.encode([
       Buffer.from(senderSig, 'hex'),
@@ -189,7 +191,7 @@ module.exports = class Channel {
 
     transaction.setInputScript(0, expireScript)
     // TODO: really submit
-    console.log('SUBMIT:', transaction.toBuffer().toString('hex'))
+    debug('SUBMIT:', transaction.toBuffer().toString('hex'))
     bitcoin.submit(this._client, transaction.toBuffer().toString('hex'))
   }
 }
